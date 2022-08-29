@@ -1,0 +1,10 @@
+﻿Title,location_name,outcome_name,muscle,analysis_group,outcome,No. studies,No. of observations,Risk of bias ,Inconsistency ,Indirectness,Imprecision ,Publication bias,GRADE
+Medial TF radiographic OA or JSN worsening,Whole TF,Radiographic OA worsening,quad,whole tf,worsening JSN/OA,6,9,-1,-1,0,-1,0,Very Low
+Medial TF quantitative JSW worsening,Medial TF,Joint space narrowing,quad,medial tf,quantitative JSN,2,3,-1,0,0,-1,0,Very Low
+Medial TF quantitative cartilage worsening,Medial TF,Cartilage thinning,quad,medial tf,quantitative cartilage progression,2,3,-1,0,-1,-1,0,Very Low
+Medial TF semi quantitative cartilage worsening,Medial TF,Cartilage lesion worsening,quad,medial tf,semi quantitative cartilage progression,4,5,-1,0,0,-1,0,Very Low
+Lateral TF semi quantitative cartilage worsening,Lateral TF,Cartilage lesion worsening,quad,lateral tf,semi quantitative cartilage progression,3,4,-1,0,0,-1,0,Very Low
+PF semi quantitative cartilage worsening,Lateral PF,Cartilage lesion worsening,quad,lateral pf,semi quantitative cartilage progression,3,4,-1,0,0,0,0,Very Low
+PF semi quantitative cartilage worsening,Medial PF,Cartilage lesion worsening,quad,medial pf,semi quantitative cartilage progression,2,3,-1,0,0,-1,0,Very Low
+Medial TF radiographic OA or JSN worsening,Whole TF,Radiographic OA worsening,hs,whole tf,worsening JSN/OA,4,5,-1,0,0,-1,0,Very Low
+PF radiographic OA or JSN worsening,Whole PF,Radiographic OA worsening,quad,whole pf,worsening JSN/OA,3,4,-1,-2,-1,-1,0,Very Low

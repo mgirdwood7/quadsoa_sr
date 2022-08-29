@@ -1,0 +1,235 @@
+---
+title: "Strength << >> OA Leave-one-out Analysis"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+
+
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(kableExtra)
+library(broom)
+library(meta)
+library(metafor)
+
+quadsoa_cleaned <- read.csv("data/processed/Strength OA Review Cleaned.csv")
+
+# Takagi paper presents two populations  - with OA and at risk of OA. These subgroups will be used in a later sensitivity analysis. 
+# For now need to combine together for the main analysis - using a 'pre-meta-analysis
+takagi <- quadsoa_cleaned %>%
+  filter(author == "Takagi") %>% 
+  group_by(author, sex, analysis_group) %>% # group by each publication and subgroups of interest in this review, for later 'pre-metaanalyses'
+  nest(data = -c(studyname:year, outcome:muscle_test, reference_group, explanatory_group)) %>%# nest data, remove data that is consistent across subgroups
+  mutate(rma = map(data, ~tidy(rma(yi, vi, data = .x)) %>% # for each group, perform a rma
+                     select(estimate, std.error) %>% # take only the estimated log rr and log se
+                     rename(yi = estimate, # rename for consistency with final dataframe
+                            sei = std.error) %>%
+                     mutate(vi = sei^2)
+  )) %>%
+  select(-data) %>% # remove the original data as no longer needed
+  unnest(cols = c(rma)) # un-nest back to same format
+
+# now need to join the 'pre-meta' data back to the original dataset
+quadsoa_analysis <- quadsoa_cleaned %>% 
+  filter(author != "Takagi") %>% # take all data not split before
+  bind_rows(., takagi) # bind the pre-meta data 
+
+# Order and arrange
+quadsoa_analysis <- quadsoa_analysis %>%
+  mutate(sex = factor(sex, levels = c("mixed", "Men", "Women", "Overall"))) %>%
+  arrange(outcome, analysis_group, muscle, sex) # order and arrange data frame
+
+# Leave one out analysis
+quadsoa_meta_loo <- quadsoa_analysis %>%
+  group_by(outcome, analysis_group, muscle) %>% # group by each publication and subgroups of interest in this review, for later 'pre-meta-analyses'
+  mutate(k = length(studyname)) %>%
+  nest(data = -c(outcome, analysis_group:muscle, k)) %>%# nest data, remove data that is consistent across subgroups
+  ungroup() %>%
+  mutate(rma = map(data, ~rma(yi, vi, data = .x)), # runs metafor meta-analysis
+         metaforinf = map_if(rma,  # ruin a influence analysis from metafor package if k>1
+                             k > 1, 
+                             ~influence(.x) %>% pluck(1) %>% data.frame, # take the output
+                             .else = ~data.frame(inf = NA))) %>% # for k <=1 return df with NAs
+  mutate(new = map2(data, metaforinf, ~bind_cols(.x, .y))) %>% # combine influence data with original data
+  mutate(new = map(new, ~.x %>%
+                     mutate(studyname = case_when(
+                       sex != "mixed" ~ paste(studyname, sex),
+                       TRUE ~ studyname)))) %>%
+  select(-c(data, rma, metaforinf)) %>% # remove all nested columns now not needed
+  # now run meta with metagen (inorder to get nice influence plots)
+  mutate(rma = map(new, ~metagen(TE = yi, seTE = sei, studlab = studyname, data = .x, sm = "RR")),
+         influence = map_if(rma, k > 1, ~metainf(.x, pooled = "random"))) # run influence analysis with meta package
+  
+```
+
+#### Sensitivity Leave-One-Out Analyses for all meta-analyses completed
+These are only for overall combined (i.e no sex subgroup), and analyses with over 2 observations
+
+"Sig Influence" in each plot refers to whether a study has statistical influence (based on cut-offs from various model parameters, and doesn't necessarily correspond to the overall effect estimate changing. A simpler way to look at this is does the overall estimate change
+
+## 1 Radiographic Worsening
+
+### 1.1 Radiographic Worsening - Quad Strength - Whole TF
+
+```{r radiogrphic quad, echo = FALSE, fig.width = 8}
+pluck(quadsoa_meta_loo$influence) %>% pluck(12) %>%
+forest.meta(., 
+            lower.equi = exp(last(.$lower)), 
+            upper.equi = exp(last(.$upper)), 
+            col.equi = "green", 
+            fill.equi = "green",
+            leftcols = c("studlab", "inf"),
+            leftlabs = c("Analysis", "Sig Influence"),
+            text.random = "Original random effects model\n(All studies included)",
+            rightcols = c("effect.ci", "I2"),
+            backtransf = TRUE,
+            fontfamily = "Karla",
+            xlim = c(0.5, 2))
+```
+
+### 1.2 Radiographic Worsening - Quad Strength - Whole PF
+```{r radiogrphic quadpf, echo = FALSE, fig.width = 8}
+pluck(quadsoa_meta_loo$influence) %>% pluck(10) %>%
+forest.meta(., 
+            lower.equi = exp(last(.$lower)), 
+            upper.equi = exp(last(.$upper)), 
+            col.equi = "green", 
+            fill.equi = "green",
+            leftcols = c("studlab", "inf"),
+            leftlabs = c("Analysis", "Sig Influence"),
+            text.random = "Original random effects model\n(All studies included)",
+            rightcols = c("effect.ci", "I2"),
+            backtransf = TRUE,
+            fontfamily = "Karla",
+            xlim = c(0.33, 3))
+```
+
+### 1.3 Radiographic Worsening - Hamstring Strength - Whole TF
+```{r radiogrphic hstf, echo = FALSE, fig.width = 8}
+pluck(quadsoa_meta_loo$influence) %>% pluck(11) %>%
+forest.meta(., 
+            lower.equi = exp(last(.$lower)), 
+            upper.equi = exp(last(.$upper)), 
+            col.equi = "green", 
+            fill.equi = "green",
+            leftcols = c("studlab", "inf"),
+            leftlabs = c("Analysis", "Sig Influence"),
+            text.random = "Original random effects model\n(All studies included)",
+            rightcols = c("effect.ci", "I2"),
+            backtransf = TRUE,
+            fontfamily = "Karla",
+            xlim = c(0.5, 2))
+```
+
+## 2 Joint Space Narrowing
+
+### 2.1 Joint Space Narrowing - Quad Strength - Medial TF
+```{r jsn quad, echo = FALSE, fig.width = 8}
+pluck(quadsoa_meta_loo$influence) %>% pluck(4) %>%
+forest.meta(., 
+            lower.equi = exp(last(.$lower)), 
+            upper.equi = exp(last(.$upper)), 
+            col.equi = "green", 
+            fill.equi = "green",
+            leftcols = c("studlab", "inf"),
+            leftlabs = c("Analysis", "Sig Influence"),
+            text.random = "Original random effects model\n(All studies included)",
+            rightcols = c("effect.ci", "I2"),
+            backtransf = TRUE,
+            fontfamily = "Karla",
+            xlim = c(0.5, 2))
+```
+
+## 3 Cartilage Thinning
+
+### 3.1 Cartilage Thinning - Quad Strength - Medial TF
+```{r thinning quad, echo = FALSE, fig.width = 8}
+pluck(quadsoa_meta_loo$influence) %>% pluck(2) %>%
+forest.meta(., 
+            lower.equi = exp(last(.$lower)), 
+            upper.equi = exp(last(.$upper)), 
+            col.equi = "green", 
+            fill.equi = "green",
+            leftcols = c("studlab", "inf"),
+            leftlabs = c("Analysis", "Sig Influence"),
+            text.random = "Original random effects model\n(All studies included)",
+            rightcols = c("effect.ci", "I2"),
+            backtransf = TRUE,
+            fontfamily = "Karla",
+            xlim = c(0.33, 3))
+```
+
+## 4 Cartilage Lesion Worsening
+
+### 4.1 Cartilage Lesion Worsening - Quad Strength - Medial TF
+```{r semi quadmedtf, echo = FALSE, fig.width = 8}
+pluck(quadsoa_meta_loo$influence) %>% pluck(8) %>%
+forest.meta(., 
+            lower.equi = exp(last(.$lower)), 
+            upper.equi = exp(last(.$upper)), 
+            col.equi = "green", 
+            fill.equi = "green",
+            leftcols = c("studlab", "inf"),
+            leftlabs = c("Analysis", "Sig Influence"),
+            text.random = "Original random effects model\n(All studies included)",
+            rightcols = c("effect.ci", "I2"),
+            backtransf = TRUE,
+            fontfamily = "Karla",
+            xlim = c(0.5, 2))
+```
+
+### 4.2 Cartilage Lesion Worsening - Quad Strength - Lateral TF
+```{r semi quadlattf, echo = FALSE, fig.width = 8}
+pluck(quadsoa_meta_loo$influence) %>% pluck(6) %>%
+forest.meta(., 
+            lower.equi = exp(last(.$lower)), 
+            upper.equi = exp(last(.$upper)), 
+            col.equi = "green", 
+            fill.equi = "green",
+            leftcols = c("studlab", "inf"),
+            leftlabs = c("Analysis", "Sig Influence"),
+            text.random = "Original random effects model\n(All studies included)",
+            rightcols = c("effect.ci", "I2"),
+            backtransf = TRUE,
+            fontfamily = "Karla",
+            xlim = c(0.5, 2))
+```
+
+### 4.3 Cartilage Lesion Worsening - Quad Strength - Medial PF
+```{r semi quadmedpf, echo = FALSE, fig.width = 8}
+pluck(quadsoa_meta_loo$influence) %>% pluck(7) %>%
+forest.meta(., 
+            lower.equi = exp(last(.$lower)), 
+            upper.equi = exp(last(.$upper)), 
+            col.equi = "green", 
+            fill.equi = "green",
+            leftcols = c("studlab", "inf"),
+            leftlabs = c("Analysis", "Sig Influence"),
+            text.random = "Original random effects model\n(All studies included)",
+            rightcols = c("effect.ci", "I2"),
+            backtransf = TRUE,
+            fontfamily = "Karla",
+            xlim = c(0.5, 2))
+```
+
+### 4.4 Cartilage Lesion Worsening - Quad Strength - Lateral PF
+```{r semi quadlatpf, echo = FALSE, fig.width = 8}
+pluck(quadsoa_meta_loo$influence) %>% pluck(5) %>%
+forest.meta(., 
+            lower.equi = exp(last(.$lower)), 
+            upper.equi = exp(last(.$upper)), 
+            col.equi = "green", 
+            fill.equi = "green",
+            leftcols = c("studlab", "inf"),
+            leftlabs = c("Analysis", "Sig Influence"),
+            text.random = "Original random effects model\n(All studies included)",
+            rightcols = c("effect.ci", "I2"),
+            backtransf = TRUE,
+            fontfamily = "Karla",
+            xlim = c(0.5, 2))
+```
+
