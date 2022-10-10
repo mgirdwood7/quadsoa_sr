@@ -372,7 +372,97 @@ ggsave("output/plots/rob.tiff", plot = rob.table, device = "tiff", width = 1500,
 
 # Grade Summary Plot
 # Combining grade assessments with summary meta-analyses for better presentation of results
-3
+grade_ass <- read_csv("data/raw/grade_assessments.csv")
+
+grade_table <- quadsoa_meta_combined %>%
+  filter(sex == "Overall",
+         nobs > 1) %>%
+  select(outcome, analysis_group, muscle, estimate, conf.low, conf.high) %>%
+  mutate(log_estimate = log(estimate),
+         log_conf.low = log(conf.low),
+         log_conf.high = log(conf.high)) %>% 
+  left_join(., grade_ass, by = c("outcome", "analysis_group", "muscle")) %>%
+  filter(!is.na(GRADE)) %>%
+  mutate(outcome_name = factor(outcome_name, levels = c("Cartilage lesion worsening", "Cartilage thinning", "Joint space narrowing", "Radiographic OA worsening"))) %>%
+  arrange(muscle, outcome_name)
+
+png("output/plots/grade summary.png", height = 800, pointsize = 25, width = 1400)
+forest(x = grade_table$log_estimate,
+       ci.lb = grade_table$log_conf.low,
+       ci.ub = grade_table$log_conf.high,
+       xlim = c(-15,4),
+       ylim = c(0,14),
+       cex = 0.8,
+       slab = grade_table$outcome_name,
+       alim = c(log(1/10),log(10)), # limit of data clipping
+       at = c(log(1/5), log(1/2), 0, log(2), log(5)), # axis limit (different to above)
+       atransf = exp,
+       pch = 20, # use small point so hidden behind polygon
+       psize = 1,
+       rows = c(1,3,4,5,6,7,8,9,10),
+       ilab = cbind(grade_table$location_name,
+                    grade_table$`No. studies`, # add matrix of data from grade assessments
+                    grade_table$`No. of observations`,
+                    grade_table$`Risk of bias`,
+                    grade_table$`Inconsistency`,
+                    grade_table$Indirectness,
+                    grade_table$Imprecision,
+                    grade_table$`Publication bias`,
+                    grade_table$GRADE),
+       ilab.xpos = c(-11, -8.5, -7.75, -7, -6.25, -5.5, -4.75, -4, -3),
+       ilab.pos = 4,
+       fonts = "Karla",
+       xlab = "",
+       header = c("Outcome", "Risk Ratio [95%CI]"),
+       efac = c(0,1))
+
+# Add diamongs for summary estimates
+addpoly(x = grade_table$log_estimate,
+        ci.lb = grade_table$log_conf.low,
+        ci.ub = grade_table$log_conf.high,
+        atransf = exp,
+        cex = 0.8,
+        annotate = FALSE,
+        rows = c(1,3,4,5,6,7,8,9,10))
+
+# expand limits so text not clipped
+par(xpd=NA)
+
+# Add risk-factor annotations
+text(-15, c(2, 11), pos = 4, c("Low Knee Flexor Strength", "Low Knee Extensor Strength"), font = 2, cex = 0.8)
+
+# text for axis descriptors
+text(log(c(1/5, 5)), -3, c("Lower strength =\ndeccreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8)
+
+# Add annotations for grade matrix
+text(x = c(-8.5, -7.75, -7, -6.25, -5.5, -4.75, -4),
+     y = 13,
+     pos = 4,
+     srt = 45, # angle text to help readability
+     cex = 0.8,
+     labels = c("No. studies", "No. observations", "Risk of bias", "Inconsistency", "Indirectness", "Imprecision", "Publication bias"))
+
+text(x = c(-3),
+     y = 13,
+     pos = 4,
+     cex = 0.8,
+     font = 2,
+     labels = c("Level of\nEvidence"))
+
+text(x = c(-11),
+     y = 13,
+     pos = 4,
+     cex = 0.8,
+     font = 2,
+     labels = c("Compartment"))
+
+text(c(-5.5),
+     16,
+     pos=3,
+     c("GRADE"))
+
+dev.off()
+
 
 # Leave one out analysis
 ## First run the influence analysis with metafor package - gives all indepth statistics and measures
