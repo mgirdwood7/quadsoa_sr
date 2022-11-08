@@ -1,57 +1,59 @@
-# Functions
+## New Meta
 
-# Convert odds ratio to risk ratio
-or_to_rr <- function(or, baselinerisk){
-  # or = extracted odds ratio
-  # baselinerisk = baseline risk probability)
-  or/(1 - baselinerisk + (baselinerisk * or))
-}
-
-# Convert risk ratio to odds ratio
-rr_to_or <- function(rr, baselinerisk){
-  # rr = extracted risk ratio
-  # baselinerisk = baseline risk probablity
-  ((1 - baselinerisk) * rr) / (1 - rr * baselinerisk)
-}
-
-smd_cell <- function(n1, mean1, sd1, n2, mean2, sd2, variable){
-  escalc("SMD", n1i = n1, m1i = mean1, sd1i = sd1, n2i = n2, m2i = mean2, sd2i = sd2, data = quadsoa) %>%
-    summary() %>%
-    select()
-}
+qquadsoa_analysis %>%
+  filter(!studyname %in% c("Dannhauer 2014", "Segal 2010"))
 
 
-foresthelper <- function(data, outcome_a, muscle_a){
-  
-  # get outcome/predictor 
-  data_filt <- data %>% filter(outcome == outcome_a, 
-                          muscle == muscle_a)
-  # get nobs for each
-  femaleobs <- data_filt$nobs[data_filt$sex == "Women"] -1
-  maleobs <- data_filt$nobs[data_filt$sex == "Men"] - 1
-  mixedobs <- data_filt$nobs[data_filt$sex == "mixed"] - 1
-  
-  # adjust rows
-  mixedspace <- if(mixedobs == 0) 2 else 3
-  malespace <- if(maleobs == 0) 3 else 5
-  femalespace <- if(femaleobs == 0) 3 else 5
-  
-  rows <- c(mixedspace:(mixedspace + mixedobs), 
-            (mixedspace + malespace + mixedobs):(mixedspace + malespace + mixedobs + maleobs), 
-            (mixedspace + malespace + femalespace + mixedobs + maleobs):(mixedspace + malespace + femalespace + mixedobs + maleobs + femaleobs))
-  return(rows)
-}
+sex <- quadsoa_analysis %>%
+  filter(analysis_group %in% c("medial tf", "whole tf"),
+         muscle == "quad",
+         !studyname %in% c("Dannhauer 2014", "Segal 2010")) %>%
+  arrange(sex) %>%
+  group_by(sex) %>%
+  nest() %>%
+  mutate(rma = map(data, ~rma(yi, vi, data = .x)),
+         output = map(rma, ~tidy(.x, conf.int = TRUE, exponentiate = TRUE)),
+         model = map(rma, glance), # get full statistics
+         predict = map(rma, ~predict(.x, transf = exp) %>% as.data.frame %>% select(starts_with("pi")))) %>% # prediction interval
+  unnest(cols = c(output, model, predict)) # unnest
+
+overall <- quadsoa_analysis %>%
+  filter(analysis_group %in% c("medial tf", "whole tf"),
+         muscle == "quad",
+         !studyname %in% c("Dannhauer 2014", "Segal 2010")) %>%
+  arrange(sex) %>%
+  nest(data = everything()) %>%
+  mutate(rma = map(data, ~rma(yi, vi, data = .x)),
+         output = map(rma, ~tidy(.x, conf.int = TRUE, exponentiate = TRUE)),
+         model = map(rma, glance), # get full statistics
+         predict = map(rma, ~predict(.x, transf = exp) %>% as.data.frame %>% select(starts_with("pi"))),
+         sex = "Overall") %>% # prediction interval
+  unnest(cols = c(output, model, predict)) # unnest
+
+combined <- bind_rows(sex, overall) %>%
+  mutate(sex = factor(sex, levels = c("mixed", "Women", "Men", "Overall"))) %>%
+  ungroup 
+
+
+# subgroup test
+metatest <- quadsoa_analysis %>%
+  filter(analysis_group %in% c("medial tf", "whole tf"),
+         muscle == "quad",
+         !studyname %in% c("Dannhauer 2014", "Segal 2010")) %>%
+  metagen(yi, sei, studlab = studyname, data = ., subgroup = sex, sm = "RR")
+forest.meta(metatest)
+
+
+####
 
 
 # Function for forest plots
 # Customises (heavily) based on the forest.default from metafor
 # Most ideas for this customisation taken from metafor webpage as well as forest plots from "meta" package
-forest_plotr <- function(outcome_a, analysis_group_a, muscle_a, supress = FALSE, extraspace = FALSE){
+forest_plotr2 <- function(supress = FALSE, extraspace = FALSE){
   
   # get outcome/predictor 
-  data_filt <- quadsoa_meta_combined %>% filter(outcome == outcome_a, 
-                                                analysis_group == analysis_group_a,                 
-                                                muscle == muscle_a)
+  data_filt <- combined 
   
   # data for forest
   forestdata <- data_filt %>%
@@ -146,6 +148,28 @@ forest_plotr <- function(outcome_a, analysis_group_a, muscle_a, supress = FALSE,
     I^2, " = ", .(formatC(forestdata$I2, digits=1, format="f")), "%, ",
     tau^2, " = ", .(formatC(forestdata$tau2, digits=2, format="f"))))
   
+  # labeling function for heterogeneity
+  mlabfun_mixed <- bquote(paste("RE Subgroup Model - ",
+    #" (Q = ", .(formatC(forestdata$QE, digits=2, format="f")),
+    #", df = ", .(forestdata$k - forestdata$p),
+    #", p ", .(metafor:::.pval(forestdata$QEp, digits=2, showeq=TRUE, sep=" ")), 
+    I^2, " = ", .(formatC(mixeddata$I2, digits=1, format="f")), "%, ",
+    tau^2, " = ", .(formatC(mixeddata$tau2, digits=2, format="f"))))
+  
+  mlabfun_male <- bquote(paste("RE Subgroup Model - ",
+    #" (Q = ", .(formatC(forestdata$QE, digits=2, format="f")),
+    #", df = ", .(forestdata$k - forestdata$p),
+    #", p ", .(metafor:::.pval(forestdata$QEp, digits=2, showeq=TRUE, sep=" ")), 
+    I^2, " = ", .(formatC(maledata$I2, digits=1, format="f")), "%, ",
+                                tau^2, " = ", .(formatC(maledata$tau2, digits=2, format="f"))))
+  
+  mlabfun_female <- bquote(paste("RE Subgroup Model - ",
+    #" (Q = ", .(formatC(forestdata$QE, digits=2, format="f")),
+    #", df = ", .(forestdata$k - forestdata$p),
+    #", p ", .(metafor:::.pval(forestdata$QEp, digits=2, showeq=TRUE, sep=" ")), 
+    I^2, " = ", .(formatC(femaledata$I2, digits=1, format="f")), "%, ",
+                                tau^2, " = ", .(formatC(femaledata$tau2, digits=2, format="f"))))
+  
   par(xpd = FALSE)
   
   # plot - use raw data points instead of from rma object to allow customisation
@@ -176,8 +200,8 @@ forest_plotr <- function(outcome_a, analysis_group_a, muscle_a, supress = FALSE,
   par(xpd=NA, font = 1) # remove plot clipping limits
   
   # text for axis descriptors
-  if(extraspace == TRUE) text(log(c(1/5, 5)), -7.5, c("Lower strength =\ndecreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8) else
-    text(log(c(1/5, 5)), -7, c("Lower strength =\ndecreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8)
+  if(extraspace == TRUE) text(log(c(1/5, 5)), -8, c("Lower strength =\ndecreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8) else
+    text(log(c(1/5, 5)), -7.5, c("Lower strength =\ndecreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8)
   
   #Add text for summary descriptors
   text(-5, -1, "Overall RE Model", pos = 4, cex = 0.8, font = 2)
@@ -190,9 +214,14 @@ forest_plotr <- function(outcome_a, analysis_group_a, muscle_a, supress = FALSE,
   if(maleobs > 0) addpoly(maledata, atransf = exp, cex = 0.8, row = malestart - 1.5, mlab = "")
   if(femaleobs > 0) addpoly(femaledata, atransf = exp, cex = 0.8, row = femalestart - 1.5, mlab = "")
   
+  text(-5, mixedstart -1.5, pos = 4, mlabfun_mixed, cex = 0.8)
+  text(-5, malestart -1.5, pos = 4, mlabfun_male, cex = 0.8)
+  text(-5, femalestart -1.5, pos = 4, mlabfun_female, cex = 0.8)
+  
   # Add prediction interval
   segments(x0 = log(pi_low), x1 = log(pi_upper), lwd = 5,  cex = 0.8, y0 = -2, col = "dark grey")
   
   # Add overall summary effet
   addpoly(forestdata, row = -1, atransf = exp, cex = 0.8,  mlab = "", efac=2)
 }
+
