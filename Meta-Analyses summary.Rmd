@@ -14,7 +14,10 @@ library(tidyverse)
 library(kableExtra)
 library(reactable)
 
-quadsoafulldata <- read_csv("~/r/quadsoa_sr/output/tables/Meta Analysis Full Results.csv") %>%
+primaryfulldata <- read_csv("~/r/quadsoa_sr/output/tables/Primary Meta Analysis Full Results.csv") %>%
+  mutate(across(where(is.numeric), ~round(.x, 3)))
+
+quadsoafulldata <- read_csv("~/r/quadsoa_sr/output/tables/Secondary Meta Analysis by Outcome Full Results.csv") %>%
   mutate(across(where(is.numeric), ~round(.x, 3)))
 
 quadsoadata <- quadsoafulldata %>%
@@ -24,10 +27,53 @@ quadsoatest <- quadsoadata %>%
   group_by(outcome, analysis_group, muscle) %>%
   nest
 
+primarytable2 <- primaryfulldata %>%
+    select(analysis_group:muscle, nobs:conf.high, pi.lb, pi.ub, i.squared:AICc)
+
 quadsoatable2 <- quadsoafulldata %>%
   select(outcome:muscle, nobs:conf.high, pi.lb, pi.ub, i.squared:AICc)
 
 ```
+
+# Primary Meta-Analyses
+
+## Tibiofemoral Joint - Quads
+
+![](output/plots/primary tf quad.png){width=70%}
+
+```{r, echo = FALSE}
+primarytable2 %>%
+  filter(muscle == "quad", 
+         analysis_group == "tf") %>%
+  select(-c(muscle, analysis_group)) %>%
+  kbl() %>% kable_styling(position = "left", full_width = FALSE)
+```
+
+
+## Tibiofemoral - Hamstring
+![](output/plots/primary tf hs.png){width=70%}
+
+```{r, echo = FALSE}
+primarytable2 %>%
+  filter(muscle == "hs", 
+         analysis_group == "tf") %>%
+  select(-c(muscle, analysis_group)) %>%
+  kbl() %>% kable_styling(position = "left", full_width = FALSE)
+```
+
+
+## Patellofemoral - Quad
+![](output/plots/primary pf quad.png){width=70%}
+
+```{r, echo = FALSE}
+primarytable2 %>%
+  filter(muscle == "quad", 
+         analysis_group == "pf") %>%
+  select(-c(muscle, analysis_group)) %>%
+  kbl() %>% kable_styling(position = "left", full_width = FALSE)
+```
+
+# Secondary Meta-Analyses - By Outcome
 
 ## Results from all meta-analyses subgroups conducted
 
@@ -222,12 +268,12 @@ quadsoatable2 %>%
 
 ---
 
-## Overall Summary
+# Overall Summary
 ![](output/plots/grade summary.png)
 
 ---
 
-## Sensitivity Analyses - Population Subgroup
+# Sensitivity Analyses - Population Subgroup
 
 For Worsening JSN/OA compared the 3 population subgroups in the review:
 
@@ -247,9 +293,17 @@ read.csv("~/r/quadsoa_sr/output/tables/Population Subgroup Sensitivity Analysis.
 
 ```
 
-## RoB Plot
+# RoB Plot
 
-![](output/plots/rob.png)
+![](output/plots/rob.png){width=50%}
+
+# Funnel Plot
+
+Test for Funnel Plot Asymmetry (Egger's Test): z = 0.4033, p = 0.6868
+![](output/plots/funnel.png)
+
+
+
 
 
 

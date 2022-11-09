@@ -21,37 +21,29 @@ smd_cell <- function(n1, mean1, sd1, n2, mean2, sd2, variable){
 }
 
 
-foresthelper <- function(data, outcome_a, muscle_a){
-  
-  # get outcome/predictor 
-  data_filt <- data %>% filter(outcome == outcome_a, 
-                          muscle == muscle_a)
-  # get nobs for each
-  femaleobs <- data_filt$nobs[data_filt$sex == "Women"] -1
-  maleobs <- data_filt$nobs[data_filt$sex == "Men"] - 1
-  mixedobs <- data_filt$nobs[data_filt$sex == "mixed"] - 1
-  
-  # adjust rows
-  mixedspace <- if(mixedobs == 0) 2 else 3
-  malespace <- if(maleobs == 0) 3 else 5
-  femalespace <- if(femaleobs == 0) 3 else 5
-  
-  rows <- c(mixedspace:(mixedspace + mixedobs), 
-            (mixedspace + malespace + mixedobs):(mixedspace + malespace + mixedobs + maleobs), 
-            (mixedspace + malespace + femalespace + mixedobs + maleobs):(mixedspace + malespace + femalespace + mixedobs + maleobs + femaleobs))
-  return(rows)
-}
-
 
 # Function for forest plots
 # Customises (heavily) based on the forest.default from metafor
 # Most ideas for this customisation taken from metafor webpage as well as forest plots from "meta" package
-forest_plotr <- function(outcome_a, analysis_group_a, muscle_a, supress = FALSE, extraspace = FALSE){
+forest_plotr <- function(data = NULL, outcome = NULL, analysis_group = NULL, muscle = NULL, supress = FALSE, extraspace = FALSE, sumtext = FALSE){
+ 
+  outcome_a <- outcome
+  analysis_group_a <- analysis_group
+  muscle_a <- muscle
   
-  # get outcome/predictor 
-  data_filt <- quadsoa_meta_combined %>% filter(outcome == outcome_a, 
-                                                analysis_group == analysis_group_a,                 
-                                                muscle == muscle_a)
+  # define filter call, if no parameter specified then NULL to filter. rlang::exprs is passed to dplyr filter later.
+  outcomefilt <- if(is.null(outcome_a)) NULL else rlang::exprs(outcome == !!outcome_a)
+  analysisfilt <- if(is.null(analysis_group_a)) NULL else rlang::exprs(analysis_group == !!analysis_group_a)
+  musclefilt <- if(is.null(muscle_a)) NULL else rlang::exprs(muscle ==  !!muscle_a)
+  
+  # get data by outcome/predictor 
+  data_filt <- if(is.null(data)) secondary_meta_combined else data
+     
+  
+  # get data by outcome/predictor 
+  data_filt <- data_filt %>% filter(!!!outcomefilt, 
+                                     !!!analysisfilt,                 
+                                     !!!musclefilt)
   
   # data for forest
   forestdata <- data_filt %>%
@@ -146,6 +138,28 @@ forest_plotr <- function(outcome_a, analysis_group_a, muscle_a, supress = FALSE,
     I^2, " = ", .(formatC(forestdata$I2, digits=1, format="f")), "%, ",
     tau^2, " = ", .(formatC(forestdata$tau2, digits=2, format="f"))))
   
+  # labeling function for combo plots
+  mlabfun_mixed <- bquote(paste("RE Model - ",
+                                #" (Q = ", .(formatC(forestdata$QE, digits=2, format="f")),
+                                #", df = ", .(forestdata$k - forestdata$p),
+                                #", p ", .(metafor:::.pval(forestdata$QEp, digits=2, showeq=TRUE, sep=" ")), 
+                                I^2, " = ", .(formatC(mixeddata$I2, digits=1, format="f")), "%, ",
+                                tau^2, " = ", .(formatC(mixeddata$tau2, digits=2, format="f"))))
+  
+  mlabfun_male <- bquote(paste("RE Model - ",
+                               #" (Q = ", .(formatC(forestdata$QE, digits=2, format="f")),
+                               #", df = ", .(forestdata$k - forestdata$p),
+                               #", p ", .(metafor:::.pval(forestdata$QEp, digits=2, showeq=TRUE, sep=" ")), 
+                               I^2, " = ", .(formatC(maledata$I2, digits=1, format="f")), "%, ",
+                               tau^2, " = ", .(formatC(maledata$tau2, digits=2, format="f"))))
+  
+  mlabfun_female <- bquote(paste("RE Model - ",
+                                 #" (Q = ", .(formatC(forestdata$QE, digits=2, format="f")),
+                                 #", df = ", .(forestdata$k - forestdata$p),
+                                 #", p ", .(metafor:::.pval(forestdata$QEp, digits=2, showeq=TRUE, sep=" ")), 
+                                 I^2, " = ", .(formatC(femaledata$I2, digits=1, format="f")), "%, ",
+                                 tau^2, " = ", .(formatC(femaledata$tau2, digits=2, format="f"))))
+  
   par(xpd = FALSE)
   
   # plot - use raw data points instead of from rma object to allow customisation
@@ -192,6 +206,10 @@ forest_plotr <- function(outcome_a, analysis_group_a, muscle_a, supress = FALSE,
   
   # Add prediction interval
   segments(x0 = log(pi_low), x1 = log(pi_upper), lwd = 5,  cex = 0.8, y0 = -2, col = "dark grey")
+  
+  if(sumtext == TRUE) text(-5, mixedstart -1.5, pos = 4, mlabfun_mixed, cex = 0.8)
+  if(sumtext == TRUE) text(-5, malestart -1.5, pos = 4, mlabfun_male, cex = 0.8)
+  if(sumtext == TRUE) text(-5, femalestart -1.5, pos = 4, mlabfun_female, cex = 0.8)
   
   # Add overall summary effet
   addpoly(forestdata, row = -1, atransf = exp, cex = 0.8,  mlab = "", efac=2)

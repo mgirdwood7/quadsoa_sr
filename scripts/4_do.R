@@ -32,9 +32,97 @@ quadsoa_analysis <- quadsoa_analysis %>%
     TRUE ~ studyname
   ))
 
-# Primary Analyses
+# 1. Primary Analysis - Grouped by compartment and muscle tested
+# Pools all studies together regardless of outcome type used
 # sex specific meta-analyses (groups are: mixed, male, female)
-quadsoa_meta_sex <- quadsoa_analysis %>%
+
+primary_meta_sex <- quadsoa_analysis %>%
+  filter(analysis_group %in% c("medial tf", "whole tf", "lateral pf", "whole pf") &
+         studyname != "Culvenor 2019" & # Exclude Culvenor as overlaps with Segal 2010
+         !(studyname == "Dannhauer 2014" & muscle == "quad")) %>% # exclude Dannhauer Quads data as overlaps with DellaIsola
+  mutate(analysis_group = case_when(
+    str_detect(analysis_group, "tf") ~ "tf", # medial tf and whole tf combined as tf
+    str_detect(analysis_group, "pf") ~ "pf" # lateral pf and whole pf combined as pf
+    )) %>%
+  arrange(sex) %>%
+  group_by(sex, analysis_group, muscle) %>%
+  nest() %>%
+  mutate(rma = map(data, ~rma(yi, vi, data = .x)),
+         output = map(rma, ~tidy(.x, conf.int = TRUE, exponentiate = TRUE)),
+         model = map(rma, glance), # get full statistics
+         predict = map(rma, ~predict(.x, transf = exp) %>% as.data.frame %>% select(starts_with("pi")))) %>% # prediction interval
+  unnest(cols = c(output, model, predict)) # unnest
+
+primary_meta_overall <- quadsoa_analysis %>%
+  filter(analysis_group %in% c("medial tf", "whole tf", "lateral pf", "whole pf") &
+           studyname != "Culvenor 2019" & # Exclude Culvenor as overlaps with Segal 2010
+           !(studyname == "Dannhauer 2014" & muscle == "quad")) %>% # Dannhauer and Culvenor removed due to data duplication
+  mutate(analysis_group = case_when(
+    str_detect(analysis_group, "tf") ~ "tf",
+    str_detect(analysis_group, "pf") ~ "pf"
+  )) %>%
+  arrange(sex) %>%
+  group_by(analysis_group, muscle) %>%
+  nest() %>%
+  mutate(rma = map(data, ~rma(yi, vi, data = .x)),
+         output = map(rma, ~tidy(.x, conf.int = TRUE, exponentiate = TRUE)),
+         model = map(rma, glance), # get full statistics
+         predict = map(rma, ~predict(.x, transf = exp) %>% as.data.frame %>% select(starts_with("pi"))),
+         sex = "Overall") %>% # prediction interval
+  unnest(cols = c(output, model, predict)) # unnest
+
+primary_meta_combined <- bind_rows(primary_meta_sex, primary_meta_overall) %>%
+  mutate(sex = factor(sex, levels = c("mixed", "Women", "Men", "Overall"))) %>%
+  select(analysis_group:type, nobs, everything()) %>%
+  arrange(analysis_group, muscle, sex) %>% # order and arrange data frame
+  ungroup 
+
+## Write results to file
+write_csv(primary_meta_combined %>% select(-c(data,rma)), "output/tables/Primary Meta Analysis Full Results.csv")
+
+
+## Forest Plots for Primary Analysis
+png("output/plots/primary tf quad.png", height = 1250, pointsize = 25, width = 800)
+forest_plotr(data = primary_meta_combined, analysis_group = "tf", muscle ="quad", extraspace = TRUE, sumtext = TRUE)
+mtext(text = "Tibiofemoral OA Worsening", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
+mtext(text = "Low Knee Extensor Strength", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
+dev.off()
+
+png("output/plots/primary tf hs.png", 800, pointsize = 25, width = 800)
+forest_plotr(data = primary_meta_combined, analysis_group = "tf", muscle ="hs", supress = TRUE)
+mtext(text = "Tibiofemoral OA Worsening", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
+mtext(text = "Low Knee Flexor Strength", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
+dev.off()
+
+png("output/plots/primary pf quad.png", height = 800, pointsize = 25, width = 800)
+forest_plotr(data = primary_meta_combined, analysis_group = "pf", muscle ="quad", supress = TRUE)
+mtext(text = "Patellofemoral OA Worsening", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
+mtext(text = "Low Knee Extensor Strength", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
+dev.off()
+
+## Funnel plot for quad <-> tf 
+png("output/plots/funnel.png", pointsize = 25, height = 700, width = 700)
+par(family = "Karla")
+primary_meta_combined %>%
+  filter(analysis_group == "tf",
+         muscle == "quad", 
+         sex == "Overall") %>%
+  pluck('rma') %>% pluck(1) %>%
+  funnel(xlab = "Risk Ratio",
+         main = "Funnel Plot \nTibiofemoral OA and \n Low Knee Extensor Strength")
+dev.off()
+
+# Eggers Test
+primary_meta_combined %>%
+  filter(analysis_group == "tf",
+         muscle == "quad", 
+         sex == "Overall") %>%
+  pluck('rma') %>% pluck(1) %>% regtest()
+
+
+# 2. Secondary Analyses - Split further by outcome type (e.g. quantitative JSN/radiographic OA etc)
+# sex specific meta-analyses (groups are: mixed, male, female)
+secondary_meta_sex <- quadsoa_analysis %>%
   group_by(outcome, sex, analysis_group, muscle) %>% # group by each publication and subgroups of interest in this review, for later 'pre-meta-analyses'
   nest(data = -c(outcome:muscle)) %>%# nest data, remove data that is consistent across subgroups
   mutate(rma = map(data, ~rma(yi, vi, data = .x)), # run meta-analysis
@@ -44,7 +132,7 @@ quadsoa_meta_sex <- quadsoa_analysis %>%
   unnest(cols = c(output, model, predict)) # unnest
 
 # meta-analyses split by outcome, compartment and muscle tested
-quadsoa_meta_overall <- quadsoa_analysis %>%
+secondary_meta_overall <- quadsoa_analysis %>%
   group_by(outcome, analysis_group, muscle) %>% # group by each publication and subgroups of interest in this review, for later 'pre-meta-analyses'
   nest(data = -c(outcome, analysis_group:muscle)) %>%# nest data, remove data that is consistent across subgroups
   mutate(rma = map(data, ~rma(yi, vi, data = .x)), # run meta-analysis
@@ -55,283 +143,67 @@ quadsoa_meta_overall <- quadsoa_analysis %>%
   mutate(sex = "Overall")
 
 # combine results from sex specific and overall meta-analyses together
-quadsoa_meta_combined <- bind_rows(quadsoa_meta_sex, quadsoa_meta_overall) %>%
+secondary_meta_combined <- bind_rows(quadsoa_meta_sex, quadsoa_meta_overall) %>%
   mutate(sex = factor(sex, levels = c("mixed", "Women", "Men", "Overall"))) %>%
   select(outcome:type, nobs, everything()) %>%
   arrange(outcome, analysis_group, muscle, sex) %>% # order and arrange data frame
   ungroup 
 
 # Write results to file
-write_csv(quadsoa_meta_combined %>% select(-c(data,rma)), "output/tables/Meta Analysis Full Results.csv")
-
-
-# Sensitivity analysis around impact of population subgrouop
-# For worsening JSN/OA grade - impact of at risk of OA vs OA group
-# Only possible for medial TF joint
-population_sa <- quadsoa_cleaned %>%
-  filter(outcome == "worsening JSN/OA",
-         analysis_group == "whole tf",
-         muscle == "quad") %>%
-  group_by(outcome, population_subgroup) %>% # group by each publication and subgroups of interest in this review, for later 'pre-meta-analyses'
-  nest(data = -c(population_subgroup, outcome, analysis_group:muscle)) %>%# nest data, remove data that is consistent across subgroups
-  mutate(rma = map(data, ~rma(yi, vi, data = .x)), # run meta-analysis
-         output = map(rma, ~tidy(.x, conf.int = TRUE, exponentiate = TRUE)), # tidy model outputs, including cis and exponentiate for interpretability 
-         model = map(rma, glance), # get full statistics
-         predict = map(rma, ~predict(.x, transf = exp) %>% as.data.frame %>% select(starts_with("pi")))) %>% # prediction interval
-  unnest(cols = c(output, model, predict)) # unnest
-
-population_sa %>% 
-  select(-c(data, rma)) %>%
-  write_csv("output/tables/Population Subgroup Sensitivity Analysis.csv")
-
-sa_plot <- quadsoa_cleaned %>%
-  filter(outcome == "worsening JSN/OA",
-         analysis_group == "whole tf",
-         muscle == "quad") %>%
-  mutate(population_subgroup = factor(population_subgroup, levels = c("risk of OA", "OA", "OA or risk of OA"))) %>%
-  arrange(desc(population_subgroup))
-
-
-png("output/plots/sensitivity population.png", height = 1000, pointsize = 25, width = 800)
-forest(sa_plot$yi,
-       sa_plot$vi,
-       slab = sa_plot$studyname, 
-       xlim = c(-5,5),
-       ylim = c(-1,20),
-       alim = c(log(1/10),log(10)), # limit of data clipping
-       at = c(log(1/5), log(1/2), 0, log(2), log(5)), # axis limit (different to above)
-       cex = 0.8,
-       rows = c(1:2, 5.5:8.5, 12:16),
-       atransf = exp,
-       fonts = "Karla",
-       xlab = "",
-       header = c("Study", "Risk Ratio [95%CI]"), 
-       efac = c(0,1)) # first element is the cis, second is the arrow. This eliminates the tick on the ci
-# add subgroup labels
-text(-5, c(3, 9.5, 17), pos = 4, c("Combined", "OA", "Risk of OA"), font = 2)
-par(xpd=NA, font = 1) # remove plot clipping limits
-text(log(c(1/5, 5)), -6 , c("Lower strength =\ndecreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8) 
-par(font = 2)
-addpoly(population_sa %>% filter(population_subgroup == "OA or risk of OA") %>% pluck(6) %>% pluck(1)
-, atransf = exp, cex = 0.8, row = 0, mlab = "    Random Effects Subgroup Model")
-addpoly(population_sa %>% filter(population_subgroup == "OA") %>% pluck(6) %>% pluck(1)
-        , atransf = exp, cex = 0.8, row = 4.5, mlab = "    Random Effects Subgroup Model")
-addpoly(population_sa %>% filter(population_subgroup == "risk of OA") %>% pluck(6) %>% pluck(1)
-        , atransf = exp, cex = 0.8, row = 11, mlab = "    Random Effects Subgroup Model")
-par(font = 1)
-mtext(text = "Sensitivity Analysis - Population Subgroup", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
-mtext(text = "Radiographic OA - in presence of low knee extensor strength", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
-dev.off()
-
-# Function for forest plots
-# Customises (heavily) based on the forest.default from metafor
-# Most ideas for this customisation taken from metafor webpage as well as forest plots from "meta" package
-forest_plotr <- function(outcome_a, analysis_group_a, muscle_a, supress = FALSE, extraspace = FALSE){
-  
-  # get outcome/predictor 
-  data_filt <- quadsoa_meta_combined %>% filter(outcome == outcome_a, 
-                               analysis_group == analysis_group_a,                 
-                               muscle == muscle_a)
-  
-  # data for forest
-  forestdata <- data_filt %>%
-    filter(sex == "Overall") %>%
-    select(rma) %>%
-    pluck(1) %>% pluck(1)
-  
-  # labels for forest plot
-  labels <- data_filt %>%
-    filter(sex == "Overall") %>%
-    select(data) %>%
-    pluck(1) %>% 
-    pluck(1) %>%
-    select(studyname) %>%
-      pluck(1)
-  
-  # original data for forest plot
-  dat <- data_filt %>%
-    filter(sex == "Overall") %>%
-    select(data) %>%
-    pluck(1) %>% 
-    pluck(1) %>%
-    mutate(ci.lb = yi - 1.96*sei,
-           ci.ub = yi + 1.96*sei)
-  
-  # size of points
-  psize <- weights(forestdata)
-  psize <- 1.2 + (psize - min(psize)) / (max(psize) - min(psize))
-  
-  # prediction interval data
-  pi_low <- data_filt$pi.lb[data_filt$sex == "Overall"]
-  pi_upper <- data_filt$pi.ub[data_filt$sex == "Overall"]
-  pi_est <- pi_upper - ((pi_upper - pi_low) / 2)
-  pi_se <- (pi_upper - pi_low) / 3.92
-  pi_text <- paste0("[", round(pi_low,2), ", ", round(pi_upper,2), "]")
-  
-  # get nobs for each
-  femaleobs <- data_filt$nobs[data_filt$sex == "Women"] -1
-  maleobs <- data_filt$nobs[data_filt$sex == "Men"] - 1
-  mixedobs <- data_filt$nobs[data_filt$sex == "mixed"] - 1
-  
-  # get total obs
-  nobs <- femaleobs + maleobs + mixedobs + 3
-  
-  # adjust rows
-  mixedspace <- if(mixedobs == 0 | supress == TRUE) 2 else 3
-  malespace <- if(maleobs == 0 | supress == TRUE) 3 else 5
-  femalespace <- if(femaleobs == 0 | supress == TRUE) 3 else 5
-  
-  # starting row of each 
-  mixedstart <- mixedspace
-  malestart <- mixedspace + malespace + mixedobs
-  femalestart <- mixedspace + malespace + femalespace + mixedobs + maleobs
-  
-  # rows to add studies on forest plot
-  rows <- c(mixedspace:(mixedspace + mixedobs), 
-            (mixedspace + malespace + mixedobs):(mixedspace + malespace + mixedobs + maleobs), 
-            (mixedspace + malespace + femalespace + mixedobs + maleobs):(mixedspace + malespace + femalespace + mixedobs + maleobs + femaleobs))
-  
-  #subgroup label height
-  mixedheight <- if(mixedobs == 0) 3.5 else (3 + 1.5 + mixedobs) 
-  maleheight <- if(maleobs == 0) ((mixedspace + mixedobs) + 3.5 + 1) else ((mixedspace + mixedobs) + 5 + 1.5 + maleobs) 
-  femaleheight <- if(femaleobs == 0) ((mixedspace + malespace + mixedobs + maleobs) + 3.5 + 1) else ((mixedspace + malespace  + mixedobs + maleobs) + 5 + 1.5 + femaleobs) 
-  
-  mixedheight <-if(supress == TRUE & mixedobs > 0) mixedheight - 1 else mixedheight
-  maleheight <-if(supress == TRUE & maleobs > 0) maleheight - 1 else maleheight
-  femaleheight <-if(supress == TRUE & femaleobs > 0) femaleheight - 1 else femaleheight
-
-  grouplabs <- c(mixedheight, maleheight, femaleheight)
-  
-  # individual data for each subgroup
-  mixeddata <- data_filt %>%
-    filter(sex == "mixed") %>%
-    select(rma) %>%
-    pluck(1) %>% pluck(1)
-  
-  maledata <- data_filt %>%
-    filter(sex == "Men") %>%
-    select(rma) %>%
-    pluck(1) %>% pluck(1)
-  
-  femaledata <- data_filt %>%
-    filter(sex == "Women") %>%
-    select(rma) %>%
-    pluck(1) %>% pluck(1)
-  
-  # labeling function for heterogeneity
-  mlabfun2 <- bquote(paste(
-                      #" (Q = ", .(formatC(forestdata$QE, digits=2, format="f")),
-                      #", df = ", .(forestdata$k - forestdata$p),
-                      #", p ", .(metafor:::.pval(forestdata$QEp, digits=2, showeq=TRUE, sep=" ")), 
-                      I^2, " = ", .(formatC(forestdata$I2, digits=1, format="f")), "%, ",
-                      tau^2, " = ", .(formatC(forestdata$tau2, digits=2, format="f"))))
-  
-  par(xpd = FALSE)
-  
-  # plot - use raw data points instead of from rma object to allow customisation
-  plot <- forest(dat$yi,
-         dat$vi,
-         slab = labels, 
-         xlim = c(-5,5),
-         ylim = c(-2,femaleheight + 3.5), # adjust y axis based on number of studies
-         alim = c(log(1/10),log(10)), # limit of data clipping
-         at = c(log(1/5), log(1/2), 0, log(2), log(5)), # axis limit (different to above)
-         cex = 0.8,
-         psize = psize,
-         rows = rows,
-         atransf = exp,
-         fonts = "Karla",
-         xlab = "",
-         header = c("Study", "Risk Ratio [95%CI]"), 
-         efac = c(0,1)) # first element is the cis, second is the arrow. This eliminates the tick on the ci
-  
-  # manually adding points for each study back in so can colour
-  points(dat$yi, rows, pch = 15, cex=psize, col = "grey")
-  
-  #segments(dat$ci.lb, rows, dat$ci.ub, rows, lwd=1.5)
-  
-  # add subgroup labels
-  text(-5, grouplabs, pos = 4, c("Mixed", "Men", "Women"), font = 2)
-  
-  par(xpd=NA, font = 1) # remove plot clipping limits
-  
-  # text for axis descriptors
-  if(extraspace == TRUE) text(log(c(1/5, 5)), -7.5, c("Lower strength =\ndecreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8) else
-    text(log(c(1/5, 5)), -7, c("Lower strength =\ndecreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8)
-  
-  #Add text for summary descriptors
-  text(-5, -1, "Overall RE Model", pos = 4, cex = 0.8, font = 2)
-  text(-5, -2, "Prediction Interval", pos = 4, cex = 0.8)
-  text(-5, -3, mlabfun2, pos = 4, cex = 0.8)
-  text(5, -2, pi_text, pos = 2, cex = 0.8) # add prediction interval text
-  
-  # Conditionally add summary polygons depending on whether > 1 study and if elect to suppres in function call
-  if(mixedobs > 0 & supress != TRUE) addpoly(mixeddata, atransf = exp, cex = 0.8, row = mixedstart - 1.5, mlab = "")
-  if(maleobs > 0) addpoly(maledata, atransf = exp, cex = 0.8, row = malestart - 1.5, mlab = "")
-  if(femaleobs > 0) addpoly(femaledata, atransf = exp, cex = 0.8, row = femalestart - 1.5, mlab = "")
-  
-  # Add prediction interval
-  segments(x0 = log(pi_low), x1 = log(pi_upper), lwd = 5,  cex = 0.8, y0 = -2, col = "dark grey")
-  
-  # Add overall summary effet
-  addpoly(forestdata, row = -1, atransf = exp, cex = 0.8,  mlab = "", efac=2)
-}
-
+write_csv(secondary_meta_combined %>% select(-c(data,rma)), "output/tables/Secondary Meta Analysis by Outcome Full Results.csv")
 
 # Individual plots with titles added also
 
 png("output/plots/worsening wholetf quad.png", height = 1110, pointsize = 25, width = 800)
-forest_plotr("worsening JSN/OA", "whole tf", "quad", extraspace = TRUE)
+forest_plotr(outcome = "worsening JSN/OA", analysis_group = "whole tf", muscle ="quad", extraspace = TRUE)
 mtext(text = "(A) Radiographic OA Worsening", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
 mtext(text = "Whole Tibiofemoral", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
 dev.off()
 
-png("output/plots/worsening whole pf quad.png", height = 740, pointsize = 25, width = 800)
-forest_plotr("worsening JSN/OA", "whole pf", "quad", supress = TRUE)
+png("output/plots/worsening whole pf quad.png", height = 700, pointsize = 25, width = 800)
+forest_plotr(outcome = "worsening JSN/OA", analysis_group = "whole pf", muscle ="quad", supress = TRUE)
 mtext(text = "(B) Radiographic OA Worsening", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
 mtext(text = "Whole Patellofemoral", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
 dev.off()
 
-
-png("output/plots/quantJSN medialtf quad.png", height = 740, pointsize = 25, width = 800)
-forest_plotr("quantitative JSN", "medial tf", "quad", supress = TRUE)
+png("output/plots/quantJSN medialtf quad.png", height = 700, pointsize = 25, width = 800)
+forest_plotr(outcome = "quantitative JSN", analysis_group = "medial tf", muscle ="quad", supress = TRUE)
 mtext(text = "Quantitative Joint Space Narrowing", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
 mtext(text = "Medial Tibiofemoral", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
 dev.off()
 
-
-png("output/plots/quant medialtf quad.png", height = 740, pointsize = 25, width = 800)
-forest_plotr("quantitative cartilage progression", "medial tf", "quad", supress = TRUE)
+png("output/plots/quant medialtf quad.png", height = 700, pointsize = 25, width = 800)
+forest_plotr(outcome = "quantitative cartilage progression", analysis_group = "medial tf", muscle ="quad", supress = TRUE)
 mtext(text = "Quantitative Cartilage Thinning", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
 mtext(text = "Medial Tibiofemoral", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
 dev.off()
 
-png("output/plots/semiquant medialtf quad.png", height = 850, pointsize = 25, width = 800)
-forest_plotr("semi quantitative cartilage progression", "medial tf", "quad", supress = TRUE)
+png("output/plots/semiquant medialtf quad.png", height = 800, pointsize = 25, width = 800)
+forest_plotr(outcome = "semi quantitative cartilage progression", analysis_group = "medial tf", muscle ="quad", supress = TRUE)
 mtext(text = "(A) Cartilage Lesion Worsening", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
 mtext(text = "Medial Tibiofemoral", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
 dev.off()
 
-png("output/plots/semiquant lateraltf quad.png", height = 790, pointsize = 25, width = 800)
-forest_plotr("semi quantitative cartilage progression", "lateral tf", "quad", supress = TRUE)
+png("output/plots/semiquant lateraltf quad.png", height = 750, pointsize = 25, width = 800)
+forest_plotr(outcome = "semi quantitative cartilage progression", analysis_group = "lateral tf", muscle ="quad", supress = TRUE)
 mtext(text = "(B) Cartilage Lesion Worsening", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
 mtext(text = "Lateral Tibiofemoral", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
 dev.off()
 
-png("output/plots/semiquant medial pf quad.png", height = 740, pointsize = 25, width = 800)
-forest_plotr("semi quantitative cartilage progression", "medial pf", "quad", supress = TRUE)
+png("output/plots/semiquant medial pf quad.png", height = 700, pointsize = 25, width = 800)
+forest_plotr(outcome = "semi quantitative cartilage progression", analysis_group = "medial pf", muscle ="quad", supress = TRUE)
 mtext(text = "(C) Cartilage Lesion Worsening", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
 mtext(text = "Medial Patellofemoral", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
 dev.off()
 
-png("output/plots/semiquant lateral pf quad.png", height = 790, pointsize = 25, width = 800)
-forest_plotr("semi quantitative cartilage progression", "lateral pf", "quad", supress = TRUE)
+png("output/plots/semiquant lateral pf quad.png", height = 750, pointsize = 25, width = 800)
+forest_plotr(outcome = "semi quantitative cartilage progression", analysis_group = "lateral pf", muscle ="quad", supress = TRUE)
 mtext(text = "(D) Cartilage Lesion Worsening", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
 mtext(text = "Lateral Patellofemoral", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
 dev.off()
 
-png("output/plots/worsening wholetf hs.png", height = 850, pointsize = 25, width = 800)
-forest_plotr("worsening JSN/OA", "whole tf", "hs", supress = TRUE)
+png("output/plots/worsening wholetf hs.png", height = 800, pointsize = 25, width = 800)
+forest_plotr(outcome = "worsening JSN/OA", analysis_group = "whole tf", muscle ="hs", supress = TRUE)
 mtext(text = "Radiographic OA Worsening", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
 mtext(text = "Whole Tibiofemoral", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
 dev.off()
@@ -462,6 +334,89 @@ text(c(-5.5),
      c("GRADE"))
 
 dev.off()
+
+
+
+# Sensitivity analysis around impact of population subgrouop
+# For worsening JSN/OA grade - impact of at risk of OA vs OA group
+# Only possible for medial TF joint
+
+population_sa_data <- quadsoa_cleaned %>%
+  filter(analysis_group %in% c("medial tf", "whole tf"),
+         !studyname %in% c("Dannhauer 2014", "Culvenor 2019"),
+         muscle == "quad") %>% # Dannhauer and Culvenor removed due to data duplication
+  mutate(analysis_group = "tf")
+
+# Not considering sex in this analysis - need to combine men + women groups together with a MA before analysing.
+sa_combine <- population_sa_data %>%
+  filter(sex != "mixed") %>% # select 
+  group_by(author, population_subgroup) %>% # group by each publication and subgroups of interest in this review, for later 'pre-metaanalyses'
+  nest(data = -c(studyname, author, year, outcome, population_subgroup, analysis_group:explanatory_group)) %>%
+  mutate(rma = map(data, ~tidy(rma(yi, vi, data = .x)) %>% # for each group, perform a rma
+                     select(estimate, std.error) %>% # take only the estimated log rr and log se
+                     rename(yi = estimate, # rename for consistency with final dataframe
+                            sei = std.error) %>%
+                     mutate(vi = sei^2)
+  )) %>%
+  select(-data) %>% # remove the original data as no longer needed
+  unnest(cols = c(rma)) %>% # un-nest back to same format
+  mutate(sex = "mixed")
+
+# now need to join the 'pre-meta' data back to the original dataset
+population_sa_data <- population_sa_data %>% 
+  filter(sex == "mixed") %>% # take all data not split before
+  bind_rows(., sa_combine) # bind the pre-meta data 
+
+population_sa <- population_sa_data %>%
+  group_by(population_subgroup) %>% # group by each publication and subgroups of interest in this review, for later 'pre-meta-analyses'
+  nest(data = -c(population_subgroup, analysis_group:muscle)) %>%# nest data, remove data that is consistent across subgroups
+  mutate(rma = map(data, ~rma(yi, vi, data = .x)), # run meta-analysis
+         output = map(rma, ~tidy(.x, conf.int = TRUE, exponentiate = TRUE)), # tidy model outputs, including cis and exponentiate for interpretability 
+         model = map(rma, glance), # get full statistics
+         predict = map(rma, ~predict(.x, transf = exp) %>% as.data.frame %>% select(starts_with("pi")))) %>% # prediction interval
+  unnest(cols = c(output, model, predict)) # unnest
+
+population_sa %>% 
+  select(-c(data, rma)) %>%
+  write_csv("output/tables/Population Subgroup Sensitivity Analysis.csv")
+
+sa_plot <- population_sa_data %>%
+  mutate(population_subgroup = factor(population_subgroup, levels = c("risk of OA", "OA", "OA or risk of OA"))) %>%
+  arrange(desc(population_subgroup))
+
+
+png("output/plots/sensitivity population.png", height = 1000, pointsize = 25, width = 800)
+forest(sa_plot$yi,
+       sa_plot$vi,
+       slab = sa_plot$studyname, 
+       xlim = c(-5,5),
+       ylim = c(-1,22),
+       alim = c(log(1/10),log(10)), # limit of data clipping
+       at = c(log(1/5), log(1/2), 0, log(2), log(5)), # axis limit (different to above)
+       cex = 0.8,
+       rows = c(1, 4.5:11.5, 15:18),
+       atransf = exp,
+       fonts = "Karla",
+       xlab = "",
+       header = c("Study", "Risk Ratio [95%CI]"), 
+       efac = c(0,1)) # first element is the cis, second is the arrow. This eliminates the tick on the ci
+# add subgroup labels
+text(-5, c(2, 12.5, 19), pos = 4, c("Combined", "OA", "Risk of OA"), font = 2)
+par(xpd=NA, font = 1) # remove plot clipping limits
+text(log(c(1/5, 5)), -6 , c("Lower strength =\ndecreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8) 
+par(font = 2)
+addpoly(population_sa %>% filter(population_subgroup == "OA or risk of OA") %>% pluck(5) %>% pluck(1)
+        , atransf = exp, cex = 0.8, row = 0, mlab = "    RE Subgroup Model")
+addpoly(population_sa %>% filter(population_subgroup == "OA") %>% pluck(5) %>% pluck(1)
+        , atransf = exp, cex = 0.8, row = 3.5, mlab = "    RE Subgroup Model")
+addpoly(population_sa %>% filter(population_subgroup == "risk of OA") %>% pluck(5) %>% pluck(1)
+        , atransf = exp, cex = 0.8, row = 14, mlab = "    RE Subgroup Model")
+par(font = 1)
+mtext(text = "Sensitivity Analysis - Population Subgroup", side = 3, adj = 0.01, line = 2, font = 2, cex = 1.3)
+mtext(text = "OA Worsening - in presence of low knee extensor strength", side = 3, adj = 0.01, line = 1, font = 1, cex = 1)
+dev.off()
+
+
 
 
 # Leave one out analysis
