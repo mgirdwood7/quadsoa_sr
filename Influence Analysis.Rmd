@@ -43,8 +43,40 @@ quadsoa_analysis <- quadsoa_analysis %>%
   mutate(sex = factor(sex, levels = c("mixed", "Men", "Women", "Overall"))) %>%
   arrange(outcome, analysis_group, muscle, sex) # order and arrange data frame
 
-# Leave one out analysis
-quadsoa_meta_loo <- quadsoa_analysis %>%
+### For Primary Analyses
+
+primary_meta_loo <- quadsoa_analysis %>%
+  filter(analysis_group %in% c("medial tf", "whole tf", "lateral pf", "whole pf") &
+           studyname != "Culvenor 2019" & # Exclude Culvenor as overlaps with Segal 2010
+           !(studyname == "Dannhauer 2014" & muscle == "quad")) %>% # Dannhauer and Culvenor removed due to data duplication
+  mutate(analysis_group = case_when(
+    str_detect(analysis_group, "tf") ~ "tf",
+    str_detect(analysis_group, "pf") ~ "pf"
+  )) %>%
+  group_by(analysis_group, muscle) %>% # group by each publication and subgroups of interest in this review, for later 'pre-meta-analyses'
+  mutate(k = length(studyname)) %>%
+  nest(data = -c(analysis_group:muscle, k)) %>%# nest data, remove data that is consistent across subgroups
+  ungroup() %>%
+  mutate(rma = map(data, ~rma(yi, vi, data = .x)), # runs metafor meta-analysis
+         metaforinf = map_if(rma,  # ruin a influence analysis from metafor package if k>1
+                             k > 1, 
+                             ~influence(.x) %>% pluck(1) %>% data.frame, # take the output
+                             .else = ~data.frame(inf = NA))) %>% # for k <=1 return df with NAs
+  mutate(new = map2(data, metaforinf, ~bind_cols(.x, .y))) %>% # combine influence data with original data
+  mutate(new = map(new, ~.x %>%
+                     mutate(studyname = case_when(
+                       sex != "mixed" ~ paste(studyname, sex),
+                       TRUE ~ studyname)))) %>%
+  select(-c(data, rma, metaforinf)) %>% # remove all nested columns now not needed
+  # now run meta with metagen (inorder to get nice influence plots)
+  mutate(rma = map(new, ~metagen(TE = yi, seTE = sei, studlab = studyname, data = .x, sm = "RR")),
+         influence = map_if(rma, k > 1, ~metainf(.x, pooled = "random"))) # run influence analysis with meta package
+
+  
+           
+
+### For Secondary Analyses
+secondary_meta_loo <- quadsoa_analysis %>%
   group_by(outcome, analysis_group, muscle) %>% # group by each publication and subgroups of interest in this review, for later 'pre-meta-analyses'
   mutate(k = length(studyname)) %>%
   nest(data = -c(outcome, analysis_group:muscle, k)) %>%# nest data, remove data that is consistent across subgroups
@@ -71,12 +103,70 @@ These are only for overall combined (i.e no sex subgroup), and analyses with ove
 
 "Sig Influence" in each plot refers to whether a study has statistical influence (based on cut-offs from various model parameters, and doesn't necessarily correspond to the overall effect estimate changing. A simpler way to look at this is does the overall estimate change
 
+# Primary Analyses
+
+## 1.1 Tibiofemoral - Quads
+
+```{r tf quad, echo = FALSE, fig.width = 8}
+pluck(primary_meta_loo$influence) %>% pluck(2) %>%
+forest.meta(., 
+            lower.equi = exp(last(.$lower)), 
+            upper.equi = exp(last(.$upper)), 
+            col.equi = "green", 
+            fill.equi = "green",
+            leftcols = c("studlab", "inf"),
+            leftlabs = c("Analysis", "Sig Influence"),
+            text.random = "Original random effects model\n(All studies included)",
+            rightcols = c("effect.ci", "I2"),
+            backtransf = TRUE,
+            fontfamily = "Karla",
+            xlim = c(0.5, 2))
+```
+
+## 1.2 Tibiofemoral - Hamstring
+
+```{r tf hs, echo = FALSE, fig.width = 8}
+pluck(primary_meta_loo$influence) %>% pluck(1) %>%
+forest.meta(., 
+            lower.equi = exp(last(.$lower)), 
+            upper.equi = exp(last(.$upper)), 
+            col.equi = "green", 
+            fill.equi = "green",
+            leftcols = c("studlab", "inf"),
+            leftlabs = c("Analysis", "Sig Influence"),
+            text.random = "Original random effects model\n(All studies included)",
+            rightcols = c("effect.ci", "I2"),
+            backtransf = TRUE,
+            fontfamily = "Karla",
+            xlim = c(0.5, 2))
+```
+
+## 1.3 Patellofemoral - Quads
+
+```{r pf quad, echo = FALSE, fig.width = 8}
+pluck(primary_meta_loo$influence) %>% pluck(3) %>%
+forest.meta(., 
+            lower.equi = exp(last(.$lower)), 
+            upper.equi = exp(last(.$upper)), 
+            col.equi = "green", 
+            fill.equi = "green",
+            leftcols = c("studlab", "inf"),
+            leftlabs = c("Analysis", "Sig Influence"),
+            text.random = "Original random effects model\n(All studies included)",
+            rightcols = c("effect.ci", "I2"),
+            backtransf = TRUE,
+            fontfamily = "Karla",
+            xlim = c(0.5, 3))
+```
+
+# Secondary Analyses
+
 ## 1 Radiographic Worsening
 
 ### 1.1 Radiographic Worsening - Quad Strength - Whole TF
 
 ```{r radiogrphic quad, echo = FALSE, fig.width = 8}
-pluck(quadsoa_meta_loo$influence) %>% pluck(12) %>%
+pluck(secondary_meta_loo$influence) %>% pluck(12) %>%
 forest.meta(., 
             lower.equi = exp(last(.$lower)), 
             upper.equi = exp(last(.$upper)), 
@@ -93,7 +183,7 @@ forest.meta(.,
 
 ### 1.2 Radiographic Worsening - Quad Strength - Whole PF
 ```{r radiogrphic quadpf, echo = FALSE, fig.width = 8}
-pluck(quadsoa_meta_loo$influence) %>% pluck(10) %>%
+pluck(secondary_meta_loo$influence) %>% pluck(10) %>%
 forest.meta(., 
             lower.equi = exp(last(.$lower)), 
             upper.equi = exp(last(.$upper)), 
@@ -110,7 +200,7 @@ forest.meta(.,
 
 ### 1.3 Radiographic Worsening - Hamstring Strength - Whole TF
 ```{r radiogrphic hstf, echo = FALSE, fig.width = 8}
-pluck(quadsoa_meta_loo$influence) %>% pluck(11) %>%
+pluck(secondary_meta_loo$influence) %>% pluck(11) %>%
 forest.meta(., 
             lower.equi = exp(last(.$lower)), 
             upper.equi = exp(last(.$upper)), 
@@ -129,7 +219,7 @@ forest.meta(.,
 
 ### 2.1 Joint Space Narrowing - Quad Strength - Medial TF
 ```{r jsn quad, echo = FALSE, fig.width = 8}
-pluck(quadsoa_meta_loo$influence) %>% pluck(4) %>%
+pluck(secondary_meta_loo$influence) %>% pluck(4) %>%
 forest.meta(., 
             lower.equi = exp(last(.$lower)), 
             upper.equi = exp(last(.$upper)), 
@@ -148,7 +238,7 @@ forest.meta(.,
 
 ### 3.1 Cartilage Thinning - Quad Strength - Medial TF
 ```{r thinning quad, echo = FALSE, fig.width = 8}
-pluck(quadsoa_meta_loo$influence) %>% pluck(2) %>%
+pluck(secondary_meta_loo$influence) %>% pluck(2) %>%
 forest.meta(., 
             lower.equi = exp(last(.$lower)), 
             upper.equi = exp(last(.$upper)), 
@@ -167,7 +257,7 @@ forest.meta(.,
 
 ### 4.1 Cartilage Lesion Worsening - Quad Strength - Medial TF
 ```{r semi quadmedtf, echo = FALSE, fig.width = 8}
-pluck(quadsoa_meta_loo$influence) %>% pluck(8) %>%
+pluck(secondary_meta_loo$influence) %>% pluck(8) %>%
 forest.meta(., 
             lower.equi = exp(last(.$lower)), 
             upper.equi = exp(last(.$upper)), 
@@ -184,7 +274,7 @@ forest.meta(.,
 
 ### 4.2 Cartilage Lesion Worsening - Quad Strength - Lateral TF
 ```{r semi quadlattf, echo = FALSE, fig.width = 8}
-pluck(quadsoa_meta_loo$influence) %>% pluck(6) %>%
+pluck(secondary_meta_loo$influence) %>% pluck(6) %>%
 forest.meta(., 
             lower.equi = exp(last(.$lower)), 
             upper.equi = exp(last(.$upper)), 
@@ -201,7 +291,7 @@ forest.meta(.,
 
 ### 4.3 Cartilage Lesion Worsening - Quad Strength - Medial PF
 ```{r semi quadmedpf, echo = FALSE, fig.width = 8}
-pluck(quadsoa_meta_loo$influence) %>% pluck(7) %>%
+pluck(secondary_meta_loo$influence) %>% pluck(7) %>%
 forest.meta(., 
             lower.equi = exp(last(.$lower)), 
             upper.equi = exp(last(.$upper)), 
@@ -218,7 +308,7 @@ forest.meta(.,
 
 ### 4.4 Cartilage Lesion Worsening - Quad Strength - Lateral PF
 ```{r semi quadlatpf, echo = FALSE, fig.width = 8}
-pluck(quadsoa_meta_loo$influence) %>% pluck(5) %>%
+pluck(secondary_meta_loo$influence) %>% pluck(5) %>%
 forest.meta(., 
             lower.equi = exp(last(.$lower)), 
             upper.equi = exp(last(.$upper)), 

@@ -143,7 +143,7 @@ secondary_meta_overall <- quadsoa_analysis %>%
   mutate(sex = "Overall")
 
 # combine results from sex specific and overall meta-analyses together
-secondary_meta_combined <- bind_rows(quadsoa_meta_sex, quadsoa_meta_overall) %>%
+secondary_meta_combined <- bind_rows(secondary_meta_sex, secondary_meta_overall) %>%
   mutate(sex = factor(sex, levels = c("mixed", "Women", "Men", "Overall"))) %>%
   select(outcome:type, nobs, everything()) %>%
   arrange(outcome, analysis_group, muscle, sex) %>% # order and arrange data frame
@@ -246,24 +246,28 @@ ggsave("output/plots/rob.tiff", plot = rob.table, device = "tiff", width = 1500,
 # Combining grade assessments with summary meta-analyses for better presentation of results
 grade_ass <- read_csv("data/raw/grade_assessments.csv")
 
-grade_table <- quadsoa_meta_combined %>%
+# Get m-a data to use in summary grade plot
+grade_table <- secondary_meta_combined %>%
+ 
+  
+grade_table <- bind_rows(primary_meta_combined %>% mutate(order = 1), secondary_meta_combined %>% mutate(order = 2)) %>%
   filter(sex == "Overall",
-         nobs > 1) %>%
-  select(outcome, analysis_group, muscle, estimate, conf.low, conf.high) %>%
-  mutate(log_estimate = log(estimate),
+         nobs > 1) %>% # only those with >1 ob performed grade on
+  select(outcome, analysis_group, muscle, estimate, conf.low, conf.high, order) %>%
+  mutate(log_estimate = log(estimate), # for metafor forest plot need log val
          log_conf.low = log(conf.low),
          log_conf.high = log(conf.high)) %>% 
   left_join(., grade_ass, by = c("outcome", "analysis_group", "muscle")) %>%
   filter(!is.na(GRADE)) %>%
-  mutate(outcome_name = factor(outcome_name, levels = c("Cartilage lesion worsening", "Cartilage thinning", "Joint space narrowing", "Radiographic OA worsening"))) %>%
-  arrange(muscle, outcome_name)
+  mutate(outcome_name = factor(outcome_name, levels = c("Cartilage lesion worsening", "Cartilage thinning", "Joint space narrowing", "Radiographic OA worsening", "Any structural worsening"))) %>%
+  arrange(desc(order), muscle, outcome_name)
 
-png("output/plots/grade summary.png", height = 800, pointsize = 25, width = 1400)
+png("output/plots/grade summary.png", height = 1200, pointsize = 25, width = 1400)
 forest(x = grade_table$log_estimate,
        ci.lb = grade_table$log_conf.low,
        ci.ub = grade_table$log_conf.high,
        xlim = c(-15,4),
-       ylim = c(0,14),
+       ylim = c(0,22),
        cex = 0.8,
        slab = grade_table$outcome_name,
        alim = c(log(1/10),log(10)), # limit of data clipping
@@ -271,7 +275,7 @@ forest(x = grade_table$log_estimate,
        atransf = exp,
        pch = 20, # use small point so hidden behind polygon
        psize = 1,
-       rows = c(1,3,4,5,6,7,8,9,10),
+       rows = c(1,3,4,5,6,7,8,9,10, 14, 16, 17),
        ilab = cbind(grade_table$location_name,
                     grade_table$`No. studies`, # add matrix of data from grade assessments
                     grade_table$`No. of observations`,
@@ -295,47 +299,48 @@ addpoly(x = grade_table$log_estimate,
         atransf = exp,
         cex = 0.8,
         annotate = FALSE,
-        rows = c(1,3,4,5,6,7,8,9,10))
+        rows = c(1,3,4,5,6,7,8,9,10, 14, 16, 17))
 
 # expand limits so text not clipped
 par(xpd=NA)
 
 # Add risk-factor annotations
-text(-15, c(2, 11), pos = 4, c("Low Knee Flexor Strength", "Low Knee Extensor Strength"), font = 2, cex = 0.8)
+text(-15, c(2, 11, 15, 18), pos = 4, c("Low Knee Flexor Strength", "Low Knee Extensor Strength", "Low Knee Flexor Strength", "Low Knee Extensor Strength"), font = 2, cex = 0.8)
+
+
+# Text for primary/secondary
+text(-15, c(12), pos = 4, bquote(paste(underline("Secondary Analysis"), " - Outcome specific")), font = 2, cex = 1)
+text(-15, c(19), pos = 4, bquote(paste(underline("Primary Analysis"),  " - All outcomes pooled")), font = 2, cex = 1)
+
 
 # text for axis descriptors
-text(log(c(1/5, 5)), -3, c("Lower strength =\ndeccreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8)
+text(log(c(1/5, 5)), -4, c("Lower strength =\ndeccreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8)
 
 # Add annotations for grade matrix
 text(x = c(-8.5, -7.75, -7, -6.25, -5.5, -4.75, -4),
-     y = 13,
+     y = 21,
      pos = 4,
      srt = 45, # angle text to help readability
      cex = 0.8,
      labels = c("No. studies", "No. observations", "Risk of bias", "Inconsistency", "Indirectness", "Imprecision", "Publication bias"))
-
 text(x = c(-3),
-     y = 13,
+     y = 21,
      pos = 4,
      cex = 0.8,
      font = 2,
      labels = c("Level of\nEvidence"))
-
 text(x = c(-11),
-     y = 13,
+     y = 21,
      pos = 4,
      cex = 0.8,
      font = 2,
      labels = c("Compartment"))
-
 text(c(-5.5),
-     16,
+     24,
      pos=3,
      c("GRADE"))
 
 dev.off()
-
-
 
 # Sensitivity analysis around impact of population subgrouop
 # For worsening JSN/OA grade - impact of at risk of OA vs OA group
@@ -417,14 +422,45 @@ mtext(text = "OA Worsening - in presence of low knee extensor strength", side = 
 dev.off()
 
 
-
-
 # Leave one out analysis
 ## First run the influence analysis with metafor package - gives all indepth statistics and measures
 ## Join these to original data
 ## Meta package provides nicer influence plot, but use the data from the metafor output in the plot.
 
-quadsoa_meta_loo <- quadsoa_analysis %>%
+### For Primary Analyses
+
+primary_meta_loo <- quadsoa_analysis %>%
+  filter(analysis_group %in% c("medial tf", "whole tf", "lateral pf", "whole pf") &
+           studyname != "Culvenor 2019" & # Exclude Culvenor as overlaps with Segal 2010
+           !(studyname == "Dannhauer 2014" & muscle == "quad")) %>% # Dannhauer and Culvenor removed due to data duplication
+  mutate(analysis_group = case_when(
+    str_detect(analysis_group, "tf") ~ "tf",
+    str_detect(analysis_group, "pf") ~ "pf"
+  )) %>%
+  group_by(analysis_group, muscle) %>% # group by each publication and subgroups of interest in this review, for later 'pre-meta-analyses'
+  mutate(k = length(studyname)) %>%
+  nest(data = -c(analysis_group:muscle, k)) %>%# nest data, remove data that is consistent across subgroups
+  ungroup() %>%
+  mutate(rma = map(data, ~rma(yi, vi, data = .x)), # runs metafor meta-analysis
+         metaforinf = map_if(rma,  # ruin a influence analysis from metafor package if k>1
+                             k > 1, 
+                             ~influence(.x) %>% pluck(1) %>% data.frame, # take the output
+                             .else = ~data.frame(inf = NA))) %>% # for k <=1 return df with NAs
+  mutate(new = map2(data, metaforinf, ~bind_cols(.x, .y))) %>% # combine influence data with original data
+  mutate(new = map(new, ~.x %>%
+                     mutate(studyname = case_when(
+                       sex != "mixed" ~ paste(studyname, sex),
+                       TRUE ~ studyname)))) %>%
+  select(-c(data, rma, metaforinf)) %>% # remove all nested columns now not needed
+  # now run meta with metagen (inorder to get nice influence plots)
+  mutate(rma = map(new, ~metagen(TE = yi, seTE = sei, studlab = studyname, data = .x, sm = "RR")),
+         influence = map_if(rma, k > 1, ~metainf(.x, pooled = "random"))) # run influence analysis with meta package
+
+  
+           
+
+### For Secondary Analyses
+secondary__meta_loo <- quadsoa_analysis %>%
   group_by(outcome, analysis_group, muscle) %>% # group by each publication and subgroups of interest in this review, for later 'pre-meta-analyses'
   mutate(k = length(studyname)) %>%
   nest(data = -c(outcome, analysis_group:muscle, k)) %>%# nest data, remove data that is consistent across subgroups
@@ -445,7 +481,7 @@ quadsoa_meta_loo <- quadsoa_analysis %>%
          influence = map_if(rma, k > 1, ~metainf(.x, pooled = "random"))) # run influence analysis with meta package
 
 # Leave-one-out analysis plot for each (change position of pluck)
-pluck(quadsoa_meta_loo$influence) %>% pluck(2) %>%
+pluck(secondary_meta_loo$influence) %>% pluck(2) %>%
 forest.meta(., 
             lower.equi = exp(last(.$lower)), 
             upper.equi = exp(last(.$upper)), 
