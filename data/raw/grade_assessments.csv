@@ -1,7 +1,7 @@
 ﻿Title,location_name,outcome_name,muscle,analysis_group,outcome,No. studies,No. of observations,Risk of bias ,Inconsistency ,Indirectness,Imprecision ,Publication bias,GRADE
 Any structural worsening,Whole TF,Any structural worsening,quad,tf,,12,16,-1,-1,0,-1,0,Very Low
-Any structural worsening,Whole TF,Any structural worsening,quad,pf,,4,5,-1,-1,-1,-1,0,Very Low
-Any structural worsening,Whole PF,Any structural worsening,hs,tf,,5,6,-1,-1,0,-1,0,Very Low
+Any structural worsening,Whole PF,Any structural worsening,quad,pf,,4,5,-1,-1,-1,-1,0,Very Low
+Any structural worsening,Whole TF,Any structural worsening,hs,tf,,5,6,-1,-1,0,-1,0,Very Low
 Medial TF radiographic OA or JSN worsening,Whole TF,Radiographic OA worsening,quad,whole tf,worsening JSN/OA,6,9,-1,-1,0,-1,0,Very Low
 Medial TF quantitative JSW worsening,Medial TF,Joint space narrowing,quad,medial tf,quantitative JSN,2,3,-1,0,0,-1,0,Very Low
 Medial TF quantitative cartilage worsening,Medial TF,Cartilage thinning,quad,medial tf,quantitative cartilage progression,2,3,-1,0,-1,-1,0,Very Low

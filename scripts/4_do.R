@@ -247,9 +247,6 @@ ggsave("output/plots/rob.tiff", plot = rob.table, device = "tiff", width = 1500,
 grade_ass <- read_csv("data/raw/grade_assessments.csv")
 
 # Get m-a data to use in summary grade plot
-grade_table <- secondary_meta_combined %>%
- 
-  
 grade_table <- bind_rows(primary_meta_combined %>% mutate(order = 1), secondary_meta_combined %>% mutate(order = 2)) %>%
   filter(sex == "Overall",
          nobs > 1) %>% # only those with >1 ob performed grade on
@@ -262,7 +259,7 @@ grade_table <- bind_rows(primary_meta_combined %>% mutate(order = 1), secondary_
   mutate(outcome_name = factor(outcome_name, levels = c("Cartilage lesion worsening", "Cartilage thinning", "Joint space narrowing", "Radiographic OA worsening", "Any structural worsening"))) %>%
   arrange(desc(order), muscle, outcome_name)
 
-png("output/plots/grade summary.png", height = 1200, pointsize = 25, width = 1400)
+png("output/plots/grade summary2.png", height = 2400, pointsize = 50, width = 2800)
 forest(x = grade_table$log_estimate,
        ci.lb = grade_table$log_conf.low,
        ci.ub = grade_table$log_conf.high,
@@ -314,7 +311,7 @@ text(-15, c(19), pos = 4, bquote(paste(underline("Primary Analysis"),  " - All o
 
 
 # text for axis descriptors
-text(log(c(1/5, 5)), -4, c("Lower strength =\ndeccreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8)
+text(log(c(1/5, 5)), -4, c("Lower strength =\ndecreased risk","Lower strength =\nincreased risk"), pos=c(3,3), cex = 0.8)
 
 # Add annotations for grade matrix
 text(x = c(-8.5, -7.75, -7, -6.25, -5.5, -4.75, -4),
